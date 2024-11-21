@@ -59,7 +59,8 @@ public class MainActivity extends AppCompatActivity {
     private boolean isCapturing = false;
     private long lastCaptureTime = 0;
     public PreviewView previewView;
-    public Button takePhoto;
+    public Button capture;
+    public Button finish;
     int cameraFacing = CameraSelector.LENS_FACING_BACK;
 
     private final ActivityResultLauncher<String> activityResultLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), new ActivityResultCallback<Boolean>() {
@@ -79,7 +80,8 @@ public class MainActivity extends AppCompatActivity {
         setContentView(viewBinding.getRoot());
 
         previewView = findViewById(R.id.previewView);
-        takePhoto = findViewById(R.id.takePhoto);
+        capture = findViewById(R.id.capture);
+        finish = findViewById(R.id.finish);
 
         // init OpenCV
         if (!OpenCVLoader.initDebug()) {
@@ -92,15 +94,19 @@ public class MainActivity extends AppCompatActivity {
         camExecutor = Executors.newSingleThreadExecutor();
 
         // start camera if permissions allow
-        Toast.makeText(this, "Image capture in progress", Toast.LENGTH_LONG).show();
         if(ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             activityResultLauncher.launch(Manifest.permission.CAMERA);
-        } else {
-            startCamera(cameraFacing);
         }
 
-        takePhoto.setOnClickListener(v -> {
+        capture.setOnClickListener(v -> {
             isCapturing = true;
+            Toast.makeText(this, "Image capture in progress", Toast.LENGTH_LONG).show();
+            startCamera(cameraFacing);
+        });
+
+        finish.setOnClickListener(v -> {
+            isCapturing = false;
+            Toast.makeText(this, "Image capture complete", Toast.LENGTH_LONG).show();
         });
 
     }
