@@ -1,40 +1,61 @@
 package com.example.asl;
 
 import android.Manifest;
+import android.content.ContentValues;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.drawable.BitmapDrawable;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Matrix;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.provider.MediaStore;
 import android.util.Log;
+import android.view.View;
 import android.widget.Button;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
-import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageCapture;
+import androidx.camera.core.ImageCaptureException;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.example.asl.ml.AslModel;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import org.opencv.android.OpenCVLoader;
 import org.opencv.android.Utils;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
-import org.opencv.core.Point;
-import org.opencv.core.Scalar;
+import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
+import org.tensorflow.lite.DataType;
+import org.tensorflow.lite.support.tensorbuffer.TensorBuffer;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -42,9 +63,16 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
     private static final int CAMERA_PERMISSION_CODE = 1001;
-    private boolean isCapturing = false;
     private ExecutorService cameraExecutor;
-    private long lastCaptureTime = 0;
+    private PreviewView previewView;
+    private ImageCapture imageCapture;
+    private TextView resultTextView; // TextView to display predictions
+
+    private final List<String> classLabels = Arrays.asList(
+            "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
+            "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
+            "U", "V", "W", "X", "Y", "Z", "del", "nothing", "space"
+    );
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,19 +95,16 @@ public class MainActivity extends AppCompatActivity {
         // Set up executor
         cameraExecutor = Executors.newSingleThreadExecutor();
 
-        // Setup Start and Stop buttons
+        // Setup Start button
         Button startButton = findViewById(R.id.startButton);
-        Button stopButton = findViewById(R.id.stopButton);
+        previewView = findViewById(R.id.previewView);
+        resultTextView = findViewById(R.id.resultTextView); // Initialize resultTextView
+
+        // Start the camera
+        startCamera();
 
         startButton.setOnClickListener(v -> {
-            isCapturing = true;
-            Toast.makeText(this, "Image capturing started", Toast.LENGTH_LONG).show();
-            startCamera();
-        });
-
-        stopButton.setOnClickListener(v -> {
-            isCapturing = false;
-            Toast.makeText(this, "Image capturing stopped", Toast.LENGTH_LONG).show();
+            capturePhoto();
         });
     }
 
@@ -93,37 +118,18 @@ public class MainActivity extends AppCompatActivity {
                             .requireLensFacing(CameraSelector.LENS_FACING_BACK)
                             .build();
 
-                    androidx.camera.view.PreviewView previewView = findViewById(R.id.previewView);
                     androidx.camera.core.Preview preview = new androidx.camera.core.Preview.Builder().build();
                     preview.setSurfaceProvider(previewView.getSurfaceProvider());
 
-
-                    // ImageAnalysis for frame processing
-                    ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
-                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    // Initialize ImageCapture for high-quality image capture
+                    imageCapture = new ImageCapture.Builder()
+                            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                            .setTargetRotation(getWindowManager().getDefaultDisplay().getRotation())
                             .build();
 
-                    imageAnalysis.setAnalyzer(cameraExecutor, imageProxy -> {
-                        long currentTime = System.currentTimeMillis();
-                        if (isCapturing && currentTime - lastCaptureTime >= 5000) { // Capture every 5 seconds
-                            lastCaptureTime = currentTime;
-                            Mat mat = imageProxyToMat(imageProxy);
-                            if (mat != null) {
-
-                                saveFrame(mat);
-                                Bitmap processedBitmap = Bitmap.createBitmap(mat.cols(), mat.rows(), Bitmap.Config.ARGB_8888);
-                                Utils.matToBitmap(mat, processedBitmap);
-                                runOnUiThread(() -> {
-                                    previewView.getOverlay().clear();
-                                    previewView.getOverlay().add(new BitmapDrawable(getResources(), processedBitmap));
-                                });
-                            }
-                        }
-                        imageProxy.close();
-                    });
-
                     // Bind to lifecycle
-                    cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis);
+                    cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture);
+
                 } catch (Exception e) {
                     Log.e(TAG, "Use case binding failed", e);
                 }
@@ -133,69 +139,170 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private Mat imageProxyToMat(ImageProxy imageProxy) {
-        try {
-            ByteBuffer buffer = imageProxy.getPlanes()[0].getBuffer();
-            byte[] bytes = new byte[buffer.remaining()];
-            buffer.get(bytes);
-            Mat mat = new Mat(imageProxy.getHeight(), imageProxy.getWidth(), CvType.CV_8UC1);
-            mat.put(0, 0, bytes);
-            return mat;
-        } catch (Exception e) {
-            Log.e(TAG, "Error converting ImageProxy to Mat", e);
-            return null;
-        }
-    }
-
-    private void drawGreenRectangle(Mat mat) {
-        Imgproc.rectangle(mat,
-                new Point(mat.cols() / 4.0, mat.rows() / 4.0),
-                new Point(mat.cols() * 3.0 / 4.0, mat.rows() * 3.0 / 4.0),
-                new Scalar(0, 255, 0), 5);
-    }
-
-    private void saveFrame(Mat mat) {
-        Bitmap bitmap = Bitmap.createBitmap(mat.cols(), mat.rows(), Bitmap.Config.ARGB_8888);
-        Utils.matToBitmap(mat, bitmap);
-
-        File directory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "CameraXOpenCV");
-        if (!directory.exists() && !directory.mkdirs()) {
-            Log.e(TAG, "Failed to create directory");
+    private void capturePhoto() {
+        if (imageCapture == null) {
             return;
         }
 
-        String fileName = "Capture_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis()) + ".jpg";
-        File file = new File(directory, fileName);
+        imageCapture.takePicture(cameraExecutor, new ImageCapture.OnImageCapturedCallback() {
+            @Override
+            public void onCaptureSuccess(@NonNull ImageProxy image) {
+                // Convert ImageProxy to Bitmap
+                Bitmap bitmap = imageProxyToBitmap(image);
 
-        try (FileOutputStream out = new FileOutputStream(file)) {
-            if (bitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)) {
-                Log.d(TAG, "Saved: " + file.getAbsolutePath());
-                runOnUiThread(() -> Toast.makeText(this, "Saved: " + file.getAbsolutePath(), Toast.LENGTH_SHORT).show());
-            } else {
-                Log.e(TAG, "Failed to compress and save bitmap");
+                // Rotate the bitmap if necessary
+                bitmap = rotateBitmap(bitmap, image.getImageInfo().getRotationDegrees());
+
+                // Resize the bitmap to 64x64 pixels using OpenCV
+                Bitmap resizedBitmap = resizeBitmapWithOpenCV(bitmap, 64, 64);
+
+                // Run prediction on the resized image
+                runModel(resizedBitmap);
+
+                // Save the resized bitmap to a file
+                saveBitmap(resizedBitmap);
+                saveBitmapToFile(resizedBitmap);
+
+                // Close the image to release resources
+                image.close();
+
+                // Clean up the bitmaps
+                if (!bitmap.isRecycled()) {
+                    bitmap.recycle();
+                }
+                if (!resizedBitmap.isRecycled()) {
+                    resizedBitmap.recycle();
+                }
             }
+
+            @Override
+            public void onError(@NonNull ImageCaptureException exception) {
+                Log.e(TAG, "Photo capture failed: " + exception.getMessage(), exception);
+            }
+        });
+    }
+
+    private Bitmap imageProxyToBitmap(ImageProxy image) {
+        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+        byte[] bytes = new byte[buffer.remaining()];
+        buffer.get(bytes);
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+    }
+
+    private Bitmap rotateBitmap(Bitmap bitmap, int degrees) {
+        if (degrees == 0) {
+            return bitmap;
+        }
+        Matrix matrix = new Matrix();
+        matrix.postRotate(degrees);
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+    }
+
+    private Bitmap resizeBitmapWithOpenCV(Bitmap bitmap, int width, int height) {
+        Mat mat = new Mat();
+        Utils.bitmapToMat(bitmap, mat);
+        Imgproc.resize(mat, mat, new Size(width, height));
+        Bitmap resizedBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Utils.matToBitmap(mat, resizedBitmap);
+        return resizedBitmap;
+    }
+
+    private void saveBitmap(Bitmap bitmap) {
+        // Placeholder function if additional bitmap saving is required
+    }
+
+    private void runModel(Bitmap bitmap) {
+        try {
+            AslModel model = AslModel.newInstance(this);
+
+            // Prepare the input buffer
+            TensorBuffer inputFeature0 = TensorBuffer.createFixedSize(new int[]{1, 64, 64, 3}, DataType.FLOAT32);
+            ByteBuffer byteBuffer = preprocessImage(bitmap);
+            inputFeature0.loadBuffer(byteBuffer);
+
+            // Perform inference
+            AslModel.Outputs outputs = model.process(inputFeature0);
+            TensorBuffer outputFeature0 = outputs.getOutputFeature0AsTensorBuffer();
+
+            // Get the prediction
+            float[] outputArray = outputFeature0.getFloatArray();
+            int maxIndex = getMaxIndex(outputArray);
+            String prediction = classLabels.get(maxIndex);
+            float confidence = outputArray[maxIndex];
+
+            // Display prediction
+            runOnUiThread(() -> resultTextView.setText("Prediction: " + prediction + " (" + String.format("%.2f", confidence * 100) + "%))"));
+
+            model.close();
         } catch (Exception e) {
-            Log.e(TAG, "Error saving bitmap", e);
+            Log.e(TAG, "Model inference failed", e);
         }
     }
 
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (cameraExecutor != null) {
-            cameraExecutor.shutdown();
+    private ByteBuffer preprocessImage(Bitmap bitmap) {
+        ByteBuffer buffer = ByteBuffer.allocateDirect(64 * 64 * 3 * 4);
+        buffer.order(ByteOrder.nativeOrder());
+
+        int[] pixels = new int[64 * 64];
+        bitmap.getPixels(pixels, 0, 64, 0, 0, 64, 64);
+
+        for (int pixel : pixels) {
+            buffer.putFloat(((pixel >> 16) & 0xFF) / 255.0f);
+            buffer.putFloat(((pixel >> 8) & 0xFF) / 255.0f);
+            buffer.putFloat((pixel & 0xFF) / 255.0f);
         }
+        return buffer;
     }
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == CAMERA_PERMISSION_CODE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                startCamera();
-            } else {
-                Toast.makeText(this, "Camera permission denied", Toast.LENGTH_LONG).show();
+    private int getMaxIndex(float[] probabilities) {
+        int maxIndex = 0;
+        float maxProbability = probabilities[0];
+        for (int i = 1; i < probabilities.length; i++) {
+            if (probabilities[i] > maxProbability) {
+                maxProbability = probabilities[i];
+                maxIndex = i;
             }
+        }
+        return maxIndex;
+    }
+
+    private void saveBitmapToFile(Bitmap bitmap) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, "asl_image_" + System.currentTimeMillis() + ".png");
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+            values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/ASL_Images");
+
+            Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (uri != null) {
+                try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+                    if (out != null) {
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+                        runOnUiThread(() -> Toast.makeText(this, "Image saved: " + uri.toString(), Toast.LENGTH_LONG).show());
+                    }
+                } catch (IOException e) {
+                    Log.e(TAG, "Failed to save image", e);
+                }
+            } else {
+                Log.e(TAG, "Failed to create new MediaStore record.");
+            }
+        } else {
+            File directory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "ASL_Images");
+            if (!directory.exists()) {
+                directory.mkdirs();
+            }
+
+            String fileName = "asl_image_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".png";
+            File file = new File(directory, fileName);
+
+            runOnUiThread(() -> {
+                try (FileOutputStream out = new FileOutputStream(file)) {
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+                    Toast.makeText(this, "Image saved: " + file.getAbsolutePath(), Toast.LENGTH_LONG).show();
+                } catch (IOException e) {
+                    Log.e(TAG, "Failed to save image", e);
+                }
+            });
         }
     }
 }
