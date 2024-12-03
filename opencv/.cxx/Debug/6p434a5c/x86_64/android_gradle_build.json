@@ -1,0 +1,37 @@
+{
+  "buildFiles": [
+    "/home/pranathi/AndroidStudioProjects/asl/opencv/libcxx_helper/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/home/pranathi/Android/Sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/home/pranathi/AndroidStudioProjects/asl/opencv/.cxx/Debug/6p434a5c/x86_64",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/home/pranathi/Android/Sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/home/pranathi/AndroidStudioProjects/asl/opencv/.cxx/Debug/6p434a5c/x86_64",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "opencv_jni_shared::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "opencv_jni_shared",
+      "output": "/home/pranathi/AndroidStudioProjects/asl/opencv/.cxx/Debug/6p434a5c/x86_64/libopencv_jni_shared.a"
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "/home/pranathi/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang.lld",
+      "cppCompilerExecutable": "/home/pranathi/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++.lld"
+    }
+  },
+  "cFileExtensions": [],
+  "cppFileExtensions": [
+    "cpp"
+  ]
+}

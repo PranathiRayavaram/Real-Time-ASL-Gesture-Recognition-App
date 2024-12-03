@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">asl</string>
+    <string name="captures_view">Captures View</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="result_text_default">Result will appear here</string>
+</resources>

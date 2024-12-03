@@ -1,0 +1,1 @@
+/home/pranathi/AndroidStudioProjects/asl/opencv/build/intermediates/cxx/Debug/6p434a5c/obj/x86_64

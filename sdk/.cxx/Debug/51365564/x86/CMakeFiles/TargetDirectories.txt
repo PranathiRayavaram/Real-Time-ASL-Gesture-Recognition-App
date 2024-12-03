@@ -1,0 +1,3 @@
+/home/pranathi/AndroidStudioProjects/asl/sdk/.cxx/Debug/51365564/x86/CMakeFiles/opencv_jni_shared.dir
+/home/pranathi/AndroidStudioProjects/asl/sdk/.cxx/Debug/51365564/x86/CMakeFiles/edit_cache.dir
+/home/pranathi/AndroidStudioProjects/asl/sdk/.cxx/Debug/51365564/x86/CMakeFiles/rebuild_cache.dir

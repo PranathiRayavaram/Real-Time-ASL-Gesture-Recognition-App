@@ -1,0 +1,17 @@
+{
+  "installationFolder": "/home/pranathi/AndroidStudioProjects/asl/sdk/build/intermediates/prefab_package/release/prefab",
+  "gradlePath": ":sdk",
+  "packageInfo": {
+    "packageName": "sdk",
+    "packageSchemaVersion": 2,
+    "packageDependencies": [],
+    "modules": [
+      {
+        "moduleName": "opencv_jni_shared",
+        "moduleHeaders": "/home/pranathi/AndroidStudioProjects/asl/sdk/native/jni/include",
+        "moduleExportLibraries": [],
+        "abis": []
+      }
+    ]
+  }
+}
